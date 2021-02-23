@@ -1,0 +1,85 @@
+---
+- hosts: server
+  become: true
+  vars:
+    mysql_root_password: strong_password
+  tasks:
+    - name: Updating apt cache 
+      apt: 
+        upgrade: no
+        update_cache: yes
+        cache_valid_time: 36000
+
+    - name: update mysql root password for all root accounts
+      mysql_user: 
+        name: root 
+        host: "{{ item }}" 
+        password: "{{ mysql_root_password }}"
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+        check_implicit_admin: yes
+        priv: "*.*:ALL,GRANT"
+      with_items:
+        - "{{ ansible_hostname }}"
+        - "{{ ansible_default_ipv4.address }}"
+        - 127.0.0.1
+        - ::1
+        - localhost 
+        - "{{ groups['client'] }}"
+        - "{{ ansible_play_batch }}"
+
+    - name: Installing python MySQL connector
+      pip: 
+        name: "{{ item }}"
+      with_items:
+        - MySQL-python
+        - mysql-connector
+
+    - name: Copying python file to server
+      copy: 
+        src: ../Server.py
+        dest: /usr/local/bin/Server.py
+
+    - name: Making file executable
+      file: 
+        path: /usr/local/bin/Server.py
+        owner: root
+        group: root
+        mode: 0755
+   
+    - name: starting server
+      shell: /usr/local/bin/Server.py >> /var/log/ListenServer.log 2>&1 &
+      become: true
+      async: 10
+      poll: 0
+
+- hosts: client
+  become: true
+  tasks:
+    - name: Installing python-pip and mysql-connector
+      script: /opt/Report_SSH_Log/ansible/newclient_batch.sh
+    
+    - name: Copying python file to server
+      copy: 
+        src: ../{{ item }} 
+        dest: /usr/local/bin/{{ item }}
+      with_items:
+        - Client.py
+        - Reporter.py
+        - Server.py
+
+    - name: Making file executable
+      file: 
+        path: /usr/local/bin/{{ item }}
+        owner: root
+        group: root
+        mode: 0755
+      with_items:
+        - Client.py
+        - Reporter.py
+      
+    - name: starting client
+      shell: /usr/local/bin/Client.py >> /var/log/ListenClient.log 2>&1 &
+      become: true
+      async: 10
+      poll: 0

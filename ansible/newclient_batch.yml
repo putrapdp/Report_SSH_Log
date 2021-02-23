@@ -1,0 +1,54 @@
+---
+- hosts: client
+  become: true
+  name: Exchange Keys between servers & Installing python-pip, mysql-connector
+  tasks:
+    - name: SSH KeyGen command
+      tags: run
+      shell: > 
+        ssh-keygen -q -b 2048 -t rsa -N "" -C "creating SSH" -f ~/.ssh/id_rsa
+        creates="~/.ssh/id_rsa"
+
+    - name: Fetch the keyfile from the node to master
+      tags: run
+      fetch: 
+        src: "~/.ssh/id_rsa.pub"
+        dest: "buffer/{{ansible_hostname}}-id_rsa.pub"
+        flat: yes
+
+    - name: Copy the key add to authorized_keys using Ansible module
+      tags: runcd
+      authorized_key:
+        user: root
+        state: present
+        key: "{{ lookup('file', '~/.ssh/id_rsa.pub') }}"
+      with_items: 
+        - "{{ groups['client'] }}"
+
+    - name: Installing python-pip and mysql-connector
+      script: /opt/Report_SSH_Log/ansible/newclient_batch.sh
+      
+    - name: Copying python file to server
+      copy: 
+        src: "{{ item }}"
+        dest: /usr/local/bin/{{ item }}
+      with_items:
+        - Client.py
+        - Reporter.py
+        - Server.py
+
+    - name: Making file executable
+      file: 
+        path: /usr/local/bin/{{ item }}
+        owner: root
+        group: root
+        mode: 0755
+      with_items:
+        - Client.py
+        - Reporter.py
+      
+    - name: starting client
+      shell: /usr/local/bin/Client.py >> /var/log/ListenClient.log 2>&1 &
+      become: true
+      async: 10
+      poll: 0
